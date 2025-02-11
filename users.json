@@ -1,0 +1,14 @@
+{
+    "ethan": {
+        "password": "$2b$12$Zyh2gmAJy/RGYEkL7MVKUun4NeYDtYMje4jhmESMr2thWxF.fcWQa",
+        "key": "7taoP1vSozyUpIhukpLOxJ4R7ALEVlTFqYIMAI74BKE="
+    },
+    "user": {
+        "password": "$2b$12$g6LlrSa55CDZICrXPyVsM.iHLY1go0tcmzPFs8/Gtq9ydQM2yTVMy",
+        "key": "tQo7JEVtXIK6c3n594RHiRfa_Cw8NDWvASr_swGozm4="
+    },
+    "john": {
+        "password": "$2b$12$BtFkFx2jEyomhDqpMwOyu.pHS5pjY2XFcyHU4SkHaDgcev3t/DyYm",
+        "key": "nAq87QeLMsFKf6FU_N3GikMoHyqCR4zbNAKHLlYR_ho="
+    }
+}
