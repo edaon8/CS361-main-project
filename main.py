@@ -2,7 +2,6 @@ import os
 import re
 import bcrypt
 import json
-import shutil
 import getpass
 from cryptography.fernet import Fernet
 
@@ -39,7 +38,7 @@ def validate_password(password):
     if (len(password) >= 8 and
         re.search(r"[A-Z]", password) and
         re.search(r"\d", password) and
-        re.search(r"[!@#$%^&*()_+\-=\[\]{};':\"\\|,.<>\/?]", password)):
+        re.search(r"[!@#$%^&*()_+\-=\[\]{};':\\|,.<>\/?]", password)):
         return True
     return False
 
