@@ -73,15 +73,20 @@ def list_files(username):
 
 def delete_file(username, filename):
     encrypted_path = os.path.join(ENCRYPTED_DIR, username + "_" + filename)
-    if os.path.exists(encrypted_path):
+    if not os.path.exists(encrypted_path):
+        print("File not found.")
+        return
+    confirmation = input(f"Are you sure you wish to delete {filename}? (1-yes, 0-no)")
+    if confirmation == "1":
         os.remove(encrypted_path)
         print("File deleted successfully.")
     else:
-        print("File not found.")
+        print("File deletion cancelled.")
+        
 
 def main():
     print("Welcome to Secure File Storage System (SSFS)!")
-    print("Here you can safely encrypt and decrypt your files using the AES encryption scheme.")
+    print("Here you can safely encrypt and decrypt your files using the Fernet encryption scheme.")
     while True:
         print("Please select an option [1-3]:")
         choice = input("[1] Login  [2] Register  [3] Exit: ")
@@ -91,7 +96,7 @@ def main():
             key = authenticate(username, password)
             if key:
                 while True:
-                    print("\nWelcome to the dashboard. Here you can encrypt files, view encrypted files,")
+                    print(f"\nWelcome to the dashboard, {username}. Here you can encrypt files, view encrypted files,")
                     print("decrypt files, and manage your existing files.")
                     print("Please select an option [1-5]:")
                     print("\n[1] Encrypt File  [2] View Files  [3] Decrypt File  [4] Delete File  [5] Logout")
