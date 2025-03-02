@@ -1,3 +1,5 @@
+import zmq
+import struct
 import os
 import re
 import bcrypt
@@ -10,6 +12,21 @@ USER_DATA_FILE = "users.json"
 ENCRYPTED_DIR = "encrypted_files"
 
 os.makedirs(ENCRYPTED_DIR, exist_ok=True)
+
+def get_rand_num(num_limit):
+    context = zmq.Context()
+    socket = context.socket(zmq.REQ)
+    socket.connect("tcp://localhost:5555")
+    socket.setsockopt(zmq.RCVTIMEO, 2000) # timeout = 1s
+    try:
+        socket.send(struct.pack("i", num_limit))
+        random_num = socket.recv_string().split()[-1] # get the last word (the number)
+        return int(random_num)
+    except Exception as e:
+        print(f"Error: {e}")
+        return -1
+    finally:
+        socket.close()
 
 def generate_key():
     return Fernet.generate_key()
@@ -82,9 +99,25 @@ def delete_file(username, filename):
         print("File deleted successfully.")
     else:
         print("File deletion cancelled.")
-        
+
+def encrypt_random_file(username, key, file_dir):
+    if not os.path.exists(file_dir):
+        print("Error: Specified directory does not exist.")
+        return
+    files = [f for f in os.listdir(file_dir) if os.path.isfile(os.path.join(file_dir, f)) and not f.endswith(".enc")]
+    if not files:
+        print("No available files to encrypt in the specified directory.")
+        return
+    rand_index = get_rand_num(len(files)-1)
+    if rand_index == -1:
+        print("Microservice unavailable, exiting...")
+        return
+    selected_file = files[rand_index]
+    encrypt_file(username, os.path.join(file_dir, selected_file), key)
 
 def main():
+    rand = get_rand_num(9) + 1
+    print(f"Testing random number from 1-10: {rand}")
     print("Welcome to Secure File Storage System (SSFS)!")
     print("Here you can safely encrypt and decrypt your files using the Fernet encryption scheme.")
     while True:
@@ -96,10 +129,11 @@ def main():
             key = authenticate(username, password)
             if key:
                 while True:
-                    print(f"\nWelcome to the dashboard, {username}. Here you can encrypt files, view encrypted files,")
+                    print(f"\nWelcome to the dashboard, {username}! Here you can encrypt files, view encrypted files,")
                     print("decrypt files, and manage your existing files.")
-                    print("Please select an option [1-5]:")
-                    print("\n[1] Encrypt File  [2] View Files  [3] Decrypt File  [4] Delete File  [5] Logout")
+                    print("Please select an option [1-6]:")
+                    print("[1] Encrypt File  [2] View Files  [3] Decrypt File  [4] Delete File")
+                    print("[5] Encrypt Random File  [6] Logout")
                     action = input("Choose: ")
                     if action == "1":
                         filepath = input("Enter the file path of the file you wish to encrypt: ")
@@ -113,6 +147,9 @@ def main():
                         filename = input("\nEnter the name of the file to delete: ")
                         delete_file(username, filename)
                     elif action == "5":
+                        file_dir = input("\nEnter the path to the directory you wish to encrypt from: ")
+                        encrypt_random_file(username, key, file_dir)
+                    elif action == "6":
                         break
             else:
                 print("\nInvalid credentials.")
