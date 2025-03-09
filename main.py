@@ -45,12 +45,11 @@ def get_rand_num(num_limit): # Microservice A
         socket.close()
         context.term()
 
-def request_file_size(filepath): # Microservice B
-    if not filepath.startswith("\\"):
-        req = "\\" + filepath
-    else:
-        req = filepath
-    return request_service("tcp://localhost:5556", req)
+def request_file_size(filepath, username, is_encrypted=False): # Microservice B
+    # Normalize the path and replace w/ forward slashes
+    req = filepath.replace("\\", "/")
+    message = f"{req}:{username}:{is_encrypted}"
+    return request_service("tcp://localhost:5556", message)
 
 def request_timestamp(): # Microservice C
     timestamp = request_service("tcp://localhost:5557", "Requesting timestamp")
@@ -60,15 +59,12 @@ def request_timestamp(): # Microservice C
     return readable_timestamp
 
 def request_file_type(filepath): # Microservice D
-    if not filepath.startswith("\\"):
-        req = "\\" + filepath
-    else:
-        req = filepath
-    return request_service("tcp://localhost:5558", req)
+    filepath = filepath.lstrip("/\\")
+    return request_service("tcp://localhost:5558", filepath)
 
 def is_valid_file(filepath):
-    _, ext = os.path.splitext(filepath)
-    return ext.lower() in ALLOWED_EXTENSIONS
+    file_type = request_file_type(filepath)
+    return file_type.lower() in ALLOWED_EXTENSIONS
 
 def generate_key():
     return Fernet.generate_key()
@@ -102,15 +98,14 @@ def validate_password(password):
     return False
 
 def encrypt_file(username, filepath, key):
-    if filepath.startswith("/") or filepath.startswith("\\"):
-        filepath = filepath[1:]
-
-    if not is_valid_file(filepath):
-        print(f"Error: {filepath} is not a valid file type for encryption.")
-        return
+    filepath = filepath.lstrip("/\\")
     
     if not os.path.exists(filepath):
         print(f"The file at '{filepath}' was not found.")
+        return
+    
+    if not is_valid_file(filepath):
+        print(f"Error: {filepath} is not a valid file type for encryption.")
         return
 
     fernet = Fernet(key)
@@ -144,15 +139,23 @@ def decrypt_file(username, filename, key):
         return
     
     timestamp = request_timestamp()
-    file_size = request_file_size(encrypted_path)
+    file_size = request_file_size(output_path, username, is_encrypted=False)
     print(f"\nFile decrypted and saved as: {output_path} at {timestamp}")
     print("Decrypted file content:")
     print(decrypted_data.decode(errors='ignore'))
     print(f"File size: {file_size}")
 
 def list_files(username):
-    files = [f.replace(username + "_", "") for f in os.listdir(ENCRYPTED_DIR) if f.startswith(username + "_")]
-    return files
+    files = [f for f in os.listdir(ENCRYPTED_DIR) if f.startswith(username + "_")]
+    if not files:
+        print("No encrypted files found.")
+        return
+
+    print("\nEncrypted Files:")
+    for file in files:
+        rel_filepath = os.path.normpath(os.path.join(ENCRYPTED_DIR, file))
+        file_size = request_file_size(rel_filepath, username, is_encrypted=True)
+        print(f"- {file.replace(username + '_', '')} ({file_size} bytes)")
 
 def delete_file(username, filename):
     if not filename.endswith(".enc"):
@@ -215,7 +218,7 @@ def main():
                         filepath = input("Enter the file path of the file you wish to encrypt: ")
                         encrypt_file(username, filepath, key)
                     elif action == "2":
-                        print("\nStored Files:", list_files(username))
+                        list_files(username)
                     elif action == "3":
                         filename = input("\nEnter the name of the file to decrypt: ")
                         decrypt_file(username, filename, key)
