@@ -5,19 +5,35 @@ import re
 import bcrypt
 import json
 import getpass
+import datetime
 from cryptography.fernet import Fernet
 
 # Directory setup
 USER_DATA_FILE = "users.json"
 ENCRYPTED_DIR = "encrypted_files"
+ALLOWED_EXTENSIONS = {'.txt'}
 
 os.makedirs(ENCRYPTED_DIR, exist_ok=True)
 
-def get_rand_num(num_limit):
+def request_service(address, message):
+    context = zmq.Context()
+    socket = context.socket(zmq.REQ)
+    socket.connect(address)
+    socket.setsockopt(zmq.RCVTIMEO, 2000)
+    try:
+        socket.send_string(message)
+        return socket.recv_string()
+    except Exception as e:
+        print(f"Error: {e}")
+    finally:
+        socket.close()
+        context.term()
+
+def get_rand_num(num_limit): # Microservice A
     context = zmq.Context()
     socket = context.socket(zmq.REQ)
     socket.connect("tcp://localhost:5555")
-    socket.setsockopt(zmq.RCVTIMEO, 2000) # timeout = 1s
+    socket.setsockopt(zmq.RCVTIMEO, 2000) # timeout = 2s
     try:
         socket.send(struct.pack("i", num_limit))
         random_num = socket.recv_string().split()[-1] # get the last word (the number)
@@ -27,6 +43,32 @@ def get_rand_num(num_limit):
         return -1
     finally:
         socket.close()
+        context.term()
+
+def request_file_size(filepath): # Microservice B
+    if not filepath.startswith("\\"):
+        req = "\\" + filepath
+    else:
+        req = filepath
+    return request_service("tcp://localhost:5556", req)
+
+def request_timestamp(): # Microservice C
+    timestamp = request_service("tcp://localhost:5557", "Requesting timestamp")
+    if timestamp:
+        timestamp_int = int(timestamp)
+        readable_timestamp = datetime.datetime.fromtimestamp(timestamp_int).strftime('%Y-%m-%d %H:%M:%S')
+    return readable_timestamp
+
+def request_file_type(filepath): # Microservice D
+    if not filepath.startswith("\\"):
+        req = "\\" + filepath
+    else:
+        req = filepath
+    return request_service("tcp://localhost:5558", req)
+
+def is_valid_file(filepath):
+    _, ext = os.path.splitext(filepath)
+    return ext.lower() in ALLOWED_EXTENSIONS
 
 def generate_key():
     return Fernet.generate_key()
@@ -60,6 +102,17 @@ def validate_password(password):
     return False
 
 def encrypt_file(username, filepath, key):
+    if filepath.startswith("/") or filepath.startswith("\\"):
+        filepath = filepath[1:]
+
+    if not is_valid_file(filepath):
+        print(f"Error: {filepath} is not a valid file type for encryption.")
+        return
+    
+    if not os.path.exists(filepath):
+        print(f"The file at '{filepath}' was not found.")
+        return
+
     fernet = Fernet(key)
     with open(filepath, "rb") as file:
         encrypted_data = fernet.encrypt(file.read())
@@ -67,38 +120,54 @@ def encrypt_file(username, filepath, key):
     encrypted_path = os.path.join(ENCRYPTED_DIR, username + "_" + filename)
     with open(encrypted_path, "wb") as file:
         file.write(encrypted_data)
-    print(f"\nFile encrypted and stored as: {encrypted_path}")
+    
+    timestamp = request_timestamp()
+    print(f"\nFile decrypted and saved as: {encrypted_path} at {timestamp}")
+    #print(f"\nFile encrypted and stored as: {encrypted_path} at {timestamp}")
 
 def decrypt_file(username, filename, key):
-    encrypted_path = os.path.join(ENCRYPTED_DIR, username + "_" + filename)
+    encrypted_path = os.path.join(ENCRYPTED_DIR, username + "_" + filename + ".enc")
+    print(f"Encrypted path: {encrypted_path}") # test comment
     if not os.path.exists(encrypted_path):
         print("File not found.")
         return
-    fernet = Fernet(key)
-    with open(encrypted_path, "rb") as file:
-        decrypted_data = fernet.decrypt(file.read())
-    output_path = filename.replace(".enc", "")
-    with open(output_path, "wb") as file:
-        file.write(decrypted_data)
-    print(f"\nFile decrypted and saved as: {output_path}")
+    
+    try:
+        fernet = Fernet(key)
+        with open(encrypted_path, "rb") as file:
+            decrypted_data = fernet.decrypt(file.read())
+        output_path = filename.replace(".enc", "")
+        with open(output_path, "wb") as file:
+            file.write(decrypted_data)
+    except Exception as e:
+        print(f"Error during decryption: {e}")
+        return
+    
+    timestamp = request_timestamp()
+    file_size = request_file_size(encrypted_path)
+    print(f"\nFile decrypted and saved as: {output_path} at {timestamp}")
     print("Decrypted file content:")
     print(decrypted_data.decode(errors='ignore'))
+    print(f"File size: {file_size}")
 
 def list_files(username):
     files = [f.replace(username + "_", "") for f in os.listdir(ENCRYPTED_DIR) if f.startswith(username + "_")]
     return files
 
 def delete_file(username, filename):
+    if not filename.endswith(".enc"):
+        filename = filename + ".enc"
     encrypted_path = os.path.join(ENCRYPTED_DIR, username + "_" + filename)
     if not os.path.exists(encrypted_path):
         print("File not found.")
         return
-    confirmation = input(f"Are you sure you wish to delete {filename}? (1-yes, 0-no)")
+    print(f"Are you sure you wish to delete {filename}? [1] Yes [0] No")
+    confirmation = input("Choose: ")
     if confirmation == "1":
         os.remove(encrypted_path)
-        print("File deleted successfully.")
+        print("\nFile deleted successfully.")
     else:
-        print("File deletion cancelled.")
+        print("\nFile deletion cancelled.")
 
 def encrypt_random_file(username, key, file_dir):
     if not os.path.exists(file_dir):
@@ -116,24 +185,31 @@ def encrypt_random_file(username, key, file_dir):
     encrypt_file(username, os.path.join(file_dir, selected_file), key)
 
 def main():
-    rand = get_rand_num(9) + 1
-    print(f"Testing random number from 1-10: {rand}")
-    print("Welcome to Secure File Storage System (SSFS)!")
-    print("Here you can safely encrypt and decrypt your files using the Fernet encryption scheme.")
+    print("\n\nWelcome to Secure File Storage System (SSFS)!")
+    print("""_       __        ___       ___       _____
+ )  ____) \    ___)  )  ____)  )  ____)    
+(  (___    |  (__   (  (___   (  (___      
+ \___  \   |   __)   \___  \   \___  \     
+ ____)  )  |  (      ____)  )  ____)  )    
+(      (__/    \____(      (__(      (_____
+          """)
+    print("Here you can safely encrypt and decrypt your files using the Fernet\nencryption scheme.")
     while True:
-        print("Please select an option [1-3]:")
-        choice = input("[1] Login  [2] Register  [3] Exit: ")
+        print("\nPlease select an option [1-3]:")
+        print("  [1] Login  [2] Register  [3] Exit")
+        choice = input("Choose: ")
         if choice == "1":
+            print("Please enter your credentials.")
             username = input("Username: ")
             password = getpass.getpass("Password: ")
             key = authenticate(username, password)
             if key:
                 while True:
-                    print(f"\nWelcome to the dashboard, {username}! Here you can encrypt files, view encrypted files,")
+                    print(f"\nWelcome to the dashboard {username}! Here you can encrypt files, view encrypted files,")
                     print("decrypt files, and manage your existing files.")
-                    print("Please select an option [1-6]:")
-                    print("[1] Encrypt File  [2] View Files  [3] Decrypt File  [4] Delete File")
-                    print("[5] Encrypt Random File  [6] Logout")
+                    print("\nPlease select an option [1-6]:")
+                    print("  [1] Encrypt File  [2] View Encrypted Files  [3] Decrypt File  [4] Delete File")
+                    print("  [5] Encrypt Random File  [6] Logout")
                     action = input("Choose: ")
                     if action == "1":
                         filepath = input("Enter the file path of the file you wish to encrypt: ")
